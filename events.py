@@ -64,7 +64,7 @@ class Event(object):
 
 
     def destruct(self):  # Call this when you want the Event to go out of scope.
-        raise NotImplementedError
+        pass
 
 
 class InverseEvent(Event):
@@ -78,7 +78,8 @@ class InverseEvent(Event):
     def __init__(self, base_event):
         super(InverseEvent, self).__init__()
         self._base_event = base_event
-        self._base_event._register(self, self._set_callback, self._clear_callback)
+        self._base_event._register(
+                self, self._set_callback, self._clear_callback)
         if not self._base_event.is_set():
             self._event.set()
 
@@ -102,7 +103,8 @@ class _ComboEvent(Event):
     def __init__(self, *events):
         """
         We combine all the input events together when creating this one, using
-        the callbacks defined in subclasses.
+        the callbacks defined in subclasses. Think of this as an abstract base
+        class.
         """
         super(_ComboEvent, self).__init__()
         self._ancestors = events
