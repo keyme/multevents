@@ -1,6 +1,14 @@
 import threading
 
 
+class UsageError(Exception):
+    """
+    This is raised when you're trying to do something with an event that
+    isn't allowed.
+    """
+    pass
+
+
 class Event(object):
     """
     You can pass these into `AnyEvent` or `AllEvent` below to join
@@ -45,26 +53,18 @@ class Event(object):
     def _register(self, registrant, set_function, clear_function):
         with self._lock:
             if registrant in self._dependents:
-                raise AssertionError("Cannot register an event twice")
+                raise UsageError("Cannot register an event twice")
             self._dependents[registrant] = (set_function, clear_function)
 
     def _unregister(self, registrant):
         with self._lock:
             if registrant not in self._dependents:
-                raise AssertionError("Cannot unregister an event we never saw")
+                raise UsageError("Cannot unregister an event we never saw")
             self._dependents.pop(registrant)
 
 
     def destruct(self):  # Call this when you want the Event to go out of scope.
         raise NotImplementedError
-
-
-class UsageError(Exception):
-    """
-    This is raised when you're trying to do something with an event that
-    isn't allowed.
-    """
-    pass
 
 
 class InverseEvent(Event):
