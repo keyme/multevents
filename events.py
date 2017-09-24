@@ -9,7 +9,23 @@ class UsageError(Exception):
     pass
 
 
-class Event(object):
+class _ContextManagerMixin(object):  # Inherit object for Python2 compatibility
+    """
+    Inherit from this for Events that are created within a context manager.
+    """
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exception_type, exception_value, exception_traceback):
+        # Ignore any exceptions raised; they'll get reraised outside our
+        # context anyway. Just clean up our references.
+        self.destruct()
+
+    def destruct(self):  # Call this when you want the Event to go out of scope.
+        pass
+
+
+class Event(_ContextManagerMixin):
     """
     You can pass these into `AnyEvent` or `AllEvent` below to join
     these together. Beyond that, they act like `threading.Event` objects.
@@ -61,10 +77,6 @@ class Event(object):
             if registrant not in self._dependents:
                 raise UsageError("Cannot unregister an event we never saw")
             self._dependents.pop(registrant)
-
-
-    def destruct(self):  # Call this when you want the Event to go out of scope.
-        pass
 
 
 class InverseEvent(Event):
@@ -129,15 +141,6 @@ class _ComboEvent(Event):
 
     def _clear_callback(self):  # Called when one of our ancestors is cleared
         raise NotImplementedError
-
-    # We also act as a context manager to support `with` statements.
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exception_type, exception_value, exception_traceback):
-        # Ignore any exceptions raised; they'll get reraised outside our
-        # context anyway. Just clean up our references.
-        self.destruct()
 
 
 class AnyEvent(_ComboEvent):
