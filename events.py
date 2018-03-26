@@ -91,38 +91,6 @@ class Event(_ContextManagerMixin):
         self._dependents.pop(registrant)
 
 
-class InverseEvent(Event):
-    """
-    This event is the inverse of the event passed in on initialization.
-    If the base event is cleared, this is set and vice versa.
-
-    Note: this type of event DOES NOT support being set and cleared itself. It
-    just mirrors what happens to the base event we're inverse of.
-    """
-    def __init__(self, base_event):
-        super(InverseEvent, self).__init__()
-        self._base_event = base_event
-        self._base_event._register(
-                self, self._set_callback, self._clear_callback)
-        if not self._base_event.is_set():
-            self._event.set()
-
-    def set(self):
-        raise UsageError("Cannot set an inverse event!")
-
-    def clear(self):
-        raise UsageError("Cannot clear an inverse event!")
-
-    def _set_callback(self):
-        super(InverseEvent, self).clear()
-
-    def _clear_callback(self):
-        super(InverseEvent, self).set()
-
-    def destruct(self):
-        self._base_event._unregister(self)
-
-
 class _ComboEvent(Event):
     def __init__(self, *events):
         """
@@ -153,6 +121,32 @@ class _ComboEvent(Event):
 
     def _clear_callback(self):  # Called when one of our ancestors is cleared
         raise NotImplementedError
+
+
+class InverseEvent(_ComboEvent):
+    """
+    This event is the inverse of the event passed in on initialization.  If the
+    base event is cleared, this is set and vice versa.
+    """
+    def __init__(self, event):
+        # The difference between this __init__ and _ComboEvent.__init__ is that
+        # this one only accepts a single parent Event, whereas _ComboEvent can
+        # have arbitrarily many.
+        super(InverseEvent, self).__init__(event)
+
+    def _initialize(self):
+        if all(not event.is_set() for event in self._ancestors):
+            # There is just the one ancestor, but we look for "all" of them to
+            # simplify the statement.
+            self.set()
+
+    @_atomic
+    def _set_callback(self):
+        self.clear()
+
+    @_atomic
+    def _clear_callback(self):
+        self.set()
 
 
 class AnyEvent(_ComboEvent):
