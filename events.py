@@ -1,3 +1,4 @@
+from functools import wraps
 import threading
 
 
@@ -7,6 +8,17 @@ class UsageError(Exception):
     isn't allowed.
     """
     pass
+
+
+def _atomic(func):
+    """
+    A decorator to acquire an object's lock for the entirety of a function.
+    """
+    @wraps(func)
+    def inner(self, *args, **kws):
+        with self._lock:
+            return func(self, *args, **kws)
+    return inner
 
 
 class _ContextManagerMixin(object):  # Inherit object for Python2 compatibility
@@ -41,24 +53,24 @@ class Event(_ContextManagerMixin):
         # clear) nullary functions.
         self._dependents = {}
 
+    @_atomic
     def set(self):
-        with self._lock:
-            self._event.set()
-            # Note that the graph of all Event objects and their dependents is
-            # a DAG, and that setting or clearing any Event will only need to
-            # acquire the locks of the descendents of that Event. Consequently,
-            # we cannot have a deadlock: that would require two Events that are
-            # each others' descendents, and that cannot happen in a DAG.
-            for set_function, clear_function in self._dependents.values():
-                set_function()
+        self._event.set()
+        # Note that the graph of all Event objects and their dependents is
+        # a DAG, and that setting or clearing any Event will only need to
+        # acquire the locks of the descendents of that Event. Consequently,
+        # we cannot have a deadlock: that would require two Events that are
+        # each others' descendents, and that cannot happen in a DAG.
+        for set_function, clear_function in self._dependents.values():
+            set_function()
 
+    @_atomic
     def clear(self):
-        with self._lock:
-            self._event.clear()
-            # Similar to the implementation of set, we cannot have a deadlock
-            # here because the Events form a DAG.
-            for set_function, clear_function in self._dependents.values():
-                clear_function()
+        self._event.clear()
+        # Similar to the implementation of set, we cannot have a deadlock
+        # here because the Events form a DAG.
+        for set_function, clear_function in self._dependents.values():
+            clear_function()
 
     def is_set(self):
         return self._event.is_set()
@@ -66,17 +78,17 @@ class Event(_ContextManagerMixin):
     def wait(self, *args, **kws):
         return self._event.wait(*args, **kws)
 
+    @_atomic
     def _register(self, registrant, set_function, clear_function):
-        with self._lock:
-            if registrant in self._dependents:
-                raise UsageError("Cannot register an event twice")
-            self._dependents[registrant] = (set_function, clear_function)
+        if registrant in self._dependents:
+            raise UsageError("Cannot register an event twice")
+        self._dependents[registrant] = (set_function, clear_function)
 
+    @_atomic
     def _unregister(self, registrant):
-        with self._lock:
-            if registrant not in self._dependents:
-                raise UsageError("Cannot unregister an event we never saw")
-            self._dependents.pop(registrant)
+        if registrant not in self._dependents:
+            raise UsageError("Cannot unregister an event we never saw")
+        self._dependents.pop(registrant)
 
 
 class InverseEvent(Event):
@@ -148,14 +160,14 @@ class AnyEvent(_ComboEvent):
     This Event gets set whenever any event in the constructor list is set, and
     gets cleared when they're all cleared.
     """
+    @_atomic
     def _set_callback(self):
-        with self._lock:
-            self.set()
+        self.set()
 
+    @_atomic
     def _clear_callback(self):
-        with self._lock:
-            if not any(event.is_set() for event in self._ancestors):
-                self.clear()
+        if not any(event.is_set() for event in self._ancestors):
+            self.clear()
 
     def _initialize(self):
         if any(event.is_set() for event in self._ancestors):
@@ -167,14 +179,14 @@ class AllEvent(_ComboEvent):
     This Event gets set whenever all the events in the constructor list are
     set, and gets cleared when any of them are cleared.
     """
+    @_atomic
     def _set_callback(self):
-        with self._lock:
-            if all(event.is_set() for event in self._ancestors):
-                self.set()
+        if all(event.is_set() for event in self._ancestors):
+            self.set()
 
+    @_atomic
     def _clear_callback(self):
-        with self._lock:
-            self.clear()
+        self.clear()
 
     def _initialize(self):
         if all(event.is_set() for event in self._ancestors):
