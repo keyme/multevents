@@ -44,8 +44,8 @@ class Event(_ContextManagerMixin):
     """
     def __init__(self):
         self._event = threading.Event()
-        # We have a lock to make set() and clear() atomic. It is re-entrant so
-        # that we can create a callback that can atomically check various
+        # We have a lock to make _set() and _clear() atomic. It is re-entrant
+        # so that we can create a callback that can atomically check various
         # conditions before running set or clear, without deadlocking (used in
         # AnyEvent and AllEvent, below).
         self._lock = threading.RLock()
@@ -53,8 +53,14 @@ class Event(_ContextManagerMixin):
         # clear) nullary functions.
         self._dependents = {}
 
-    @_atomic
     def set(self):
+        self._set()
+
+    def clear(self):
+        self._clear()
+
+    @_atomic
+    def _set(self):
         self._event.set()
         # Note that the graph of all Event objects and their dependents is
         # a DAG, and that setting or clearing any Event will only need to
@@ -65,7 +71,7 @@ class Event(_ContextManagerMixin):
             set_function()
 
     @_atomic
-    def clear(self):
+    def _clear(self):
         self._event.clear()
         # Similar to the implementation of set, we cannot have a deadlock
         # here because the Events form a DAG.
@@ -113,6 +119,12 @@ class _ComboEvent(Event):
         for event in self._ancestors:
             event._unregister(self)
 
+    def set(self):
+        raise UsageError("Don't set combination events directly.")
+
+    def clear(self):
+        raise UsageError("Don't clear combination events directly.")
+
     def _initialize(self):  # Called to initialize the state at the beginning
         raise NotImplementedError
 
@@ -138,15 +150,15 @@ class InverseEvent(_ComboEvent):
         if all(not event.is_set() for event in self._ancestors):
             # There is just the one ancestor, but we look for "all" of them to
             # simplify the statement.
-            self.set()
+            self._set()
 
     @_atomic
     def _set_callback(self):
-        self.clear()
+        self._clear()
 
     @_atomic
     def _clear_callback(self):
-        self.set()
+        self._set()
 
 
 class AnyEvent(_ComboEvent):
@@ -156,12 +168,12 @@ class AnyEvent(_ComboEvent):
     """
     @_atomic
     def _set_callback(self):
-        self.set()
+        self._set()
 
     @_atomic
     def _clear_callback(self):
         if not any(event.is_set() for event in self._ancestors):
-            self.clear()
+            self._clear()
 
     def _initialize(self):
         if any(event.is_set() for event in self._ancestors):
@@ -176,11 +188,11 @@ class AllEvent(_ComboEvent):
     @_atomic
     def _set_callback(self):
         if all(event.is_set() for event in self._ancestors):
-            self.set()
+            self._set()
 
     @_atomic
     def _clear_callback(self):
-        self.clear()
+        self._clear()
 
     def _initialize(self):
         if all(event.is_set() for event in self._ancestors):
